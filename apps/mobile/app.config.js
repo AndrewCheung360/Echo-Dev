@@ -77,7 +77,7 @@ module.exports = ({ config }) => {
     },
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.echo.mobile",
+      bundleIdentifier: "com.echo.mobile.ios",
       infoPlist: {
         NSMicrophoneUsageDescription:
           "Echo needs microphone access for voice commands to create and run workflows.",
@@ -109,10 +109,7 @@ module.exports = ({ config }) => {
       output: "static",
       favicon: "./assets/images/favicon.png",
     },
-    plugins: [
-      "expo-router",
-      "expo-audio",
-    ],
+    plugins: ["expo-router", "expo-audio"],
     experiments: {
       typedRoutes: true,
     },
