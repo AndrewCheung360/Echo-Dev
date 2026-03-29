@@ -43,7 +43,7 @@ module.exports = ({ config }) => {
   const agentUrl =
     process.env.EXPO_PUBLIC_ECHO_AGENT_URL ??
     process.env.NEXT_PUBLIC_ECHO_AGENT_URL ??
-    apiUrl;
+    "http://localhost:8083";
 
   // Google OAuth Client IDs for expo-auth-session
   // The web client ID is required (used on all platforms); iOS/Android are optional overrides.
