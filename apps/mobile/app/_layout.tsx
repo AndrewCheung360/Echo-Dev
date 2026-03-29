@@ -1,3 +1,4 @@
+import "@/lib/livekit-setup";
 import { useEffect } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { useFonts } from "expo-font";

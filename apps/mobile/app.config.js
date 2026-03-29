@@ -109,7 +109,12 @@ module.exports = ({ config }) => {
       output: "static",
       favicon: "./assets/images/favicon.png",
     },
-    plugins: ["expo-router", "expo-audio"],
+    plugins: [
+      "expo-router",
+      "expo-audio",
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc",
+    ],
     experiments: {
       typedRoutes: true,
     },

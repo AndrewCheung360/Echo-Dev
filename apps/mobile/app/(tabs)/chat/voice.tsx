@@ -21,10 +21,10 @@ import { BlurView } from "expo-blur";
 import { GlassView } from "expo-glass-effect";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useVoiceSession, type VoiceState } from "@/hooks/use-voice-session";
-import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
-import { useVoicePlayer } from "@/hooks/use-voice-player";
-import { useAudioRecorder, RecordingPresets } from "expo-audio";
+import {
+  useLiveKitSession,
+  type VoiceState,
+} from "@/hooks/use-livekit-session";
 import { colors } from "@echo/design-tokens";
 
 /* ─── tool metadata ─── */
@@ -252,7 +252,7 @@ function ControlBarContent({
   setShowHelp,
   handleClose,
 }: {
-  session: ReturnType<typeof useVoiceSession>;
+  session: ReturnType<typeof useLiveKitSession>;
   showHelp: boolean;
   setShowHelp: (v: boolean) => void;
   handleClose: () => void;
@@ -359,14 +359,16 @@ export default function VoiceScreen() {
   const [showHelp, setShowHelp] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  const player = useVoicePlayer();
-
-  const session = useVoiceSession({
-    onAudioData: (data) => player.enqueue(data),
-    onTranscript: (text) => {
+  const session = useLiveKitSession({
+    onTranscript: (text, role) => {
       setTranscript((prev) => [
         ...prev,
-        { id: `t-${Date.now()}`, role: "agent", text, ts: Date.now() },
+        {
+          id: `t-${Date.now()}`,
+          role: role ?? "agent",
+          text,
+          ts: Date.now(),
+        },
       ]);
     },
     onToolCall: (name) => setActiveTool(name),
@@ -378,28 +380,10 @@ export default function VoiceScreen() {
     onTurnComplete: () => setActiveTool(null),
   });
 
-  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recorder = useVoiceRecorder();
-
   useEffect(() => {
     session.connect();
-    return () => {
-      session.disconnect();
-      player.stop();
-      recorder.cancel();
-    };
+    return () => session.disconnect();
   }, []);
-
-  useEffect(() => {
-    if (session.state === "listening" && !recorder.recording) {
-      recorder.start(audioRecorder);
-    } else if (
-      (session.state === "muted" || session.state === "thinking") &&
-      recorder.recording
-    ) {
-      recorder.cancel();
-    }
-  }, [session.state]);
 
   useEffect(() => {
     if (transcript.length > 0) {
@@ -409,9 +393,11 @@ export default function VoiceScreen() {
 
   function handleClose() {
     session.disconnect();
-    player.stop();
-    recorder.cancel();
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/chat");
+    }
   }
 
   const statusLabel: Record<VoiceState, string> = {
