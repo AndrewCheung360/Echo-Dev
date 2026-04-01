@@ -7,6 +7,8 @@ import {
   RemoteParticipant,
   type RemoteTrackPublication,
   type TranscriptionSegment,
+  Participant,
+  TrackPublication,
 } from "livekit-client";
 import {
   AudioSession,
@@ -246,8 +248,8 @@ export function useLiveKitSession(callbacks: LiveKitSessionCallbacks) {
           RoomEvent.TranscriptionReceived,
           (
             segments: TranscriptionSegment[],
-            participant?: RemoteParticipant,
-            _publication?: RemoteTrackPublication,
+            participant?: Participant,
+            _publication?: TrackPublication,
           ) => {
             for (const seg of segments) {
               if (!seg.final) continue;
