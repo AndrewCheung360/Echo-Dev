@@ -15,7 +15,7 @@ const extra = Constants.expoConfig?.extra ?? {};
  * Requires different OAuth client IDs per platform:
  * - Web: clientId (type "Web application") — allows https:// redirects
  * - iOS: iosClientId (type "iOS") — uses reversed client ID as URL scheme
- *   - Bundle ID in GCP must match: com.echo.mobile
+ *   - Bundle ID in GCP must match: com.echo.mobile.ios
  * - Android: androidClientId (type "Android")
  *   - Package name in GCP must match: com.echo.mobile
  *

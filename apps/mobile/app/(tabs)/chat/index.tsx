@@ -20,7 +20,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { AGENT_URL, apiFetch } from "@/lib/api";
 import { colors } from "@echo/design-tokens";
 
-const iosVersion = Platform.OS === "ios" ? parseInt(String(Platform.Version), 10) : 0;
+const iosVersion =
+  Platform.OS === "ios" ? parseInt(String(Platform.Version), 10) : 0;
 const supportsLiquidGlass = Platform.OS === "ios" && iosVersion >= 26;
 
 /* ─── types ─── */
@@ -139,134 +140,142 @@ export default function ChatScreen() {
   }
 
   /* ─── WebSocket ─── */
-  const connect = useCallback(async () => {
-    setConnectError(false);
-    reconnectAttempts.current = 0;
-    reconnectDelay.current = 1000;
-    const token = await getIdToken();
-    if (!token) return;
-
-    const wsUrl = `${AGENT_URL.replace(/^http/, "ws")}/ws/chat?token=${encodeURIComponent(token)}&mode=text`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      setConnected(true);
+  const connect = useCallback(
+    async (isRetry = false) => {
       setConnectError(false);
-      reconnectDelay.current = 1000; // reset backoff
-      reconnectAttempts.current = 0;
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const ts = Date.now();
-
-        if (data.type === "text" || data.type === "response") {
-          setThinking(false);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `msg-${ts}`,
-              role: "assistant",
-              type: "text",
-              content: data.text ?? data.content ?? "",
-              timestamp: ts,
-              workflowId: data.runLink?.workflowId,
-              runId: data.runLink?.runId,
-            },
-          ]);
-        } else if (data.type === "tool_call") {
-          const name = data.name ?? "tool";
-          const meta = TOOL_META[name];
-          // Start synthesis loader for synthesis/adhoc tools
-          if (name === "synthesize_from_description" || name === "run_adhoc") {
-            startSynthesis();
-          }
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `tool-${ts}`,
-              role: "system",
-              type: "tool_call",
-              content: meta?.label ?? `Running: ${name}`,
-              toolName: name,
-              timestamp: ts,
-            },
-          ]);
-        } else if (data.type === "synthesis_complete") {
-          stopSynthesis();
-          setThinking(false);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `synth-${ts}`,
-              role: "system",
-              type: "synthesis_complete",
-              content: `Workflow "${data.workflow_name ?? "New"}" created!`,
-              workflowId: data.workflow_id,
-              workflowName: data.workflow_name,
-              timestamp: ts,
-            },
-          ]);
-        } else if (data.type === "run_started") {
-          setThinking(false);
-          const link = data.runLink ?? data;
-          if (link.ephemeral) {
-            setAdhocWorkflow({
-              workflowId: link.workflowId ?? link.workflow_id,
-              runId: link.runId ?? link.run_id,
-              name: link.name ?? "Ad-hoc workflow",
-            });
-          }
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `run-${ts}`,
-              role: "system",
-              type: "run_started",
-              content: `Run started`,
-              workflowId: link.workflowId ?? link.workflow_id,
-              runId: link.runId ?? link.run_id,
-              workflowName: link.name,
-              ephemeral: link.ephemeral,
-              timestamp: ts,
-            },
-          ]);
-        } else if (data.type === "error") {
-          setThinking(false);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `err-${ts}`,
-              role: "assistant",
-              type: "error",
-              content: data.text ?? "An error occurred.",
-              timestamp: ts,
-            },
-          ]);
-        } else if (data.type === "turn_complete") {
-          setThinking(false);
-        }
-      } catch {}
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      reconnectAttempts.current += 1;
-      // After 3 failed attempts (~14s total), show error and stop auto-retry
-      if (reconnectAttempts.current >= 3) {
-        setConnectError(true);
-        return;
+      if (!isRetry) {
+        reconnectAttempts.current = 0;
+        reconnectDelay.current = 1000;
       }
-      // Exponential backoff reconnection
-      const delay = Math.min(reconnectDelay.current, 30000);
-      reconnectTimer.current = setTimeout(() => connect(), delay);
-      reconnectDelay.current = delay * 2;
-    };
+      const token = await getIdToken();
+      if (!token) return;
 
-    ws.onerror = () => ws.close();
-    wsRef.current = ws;
-  }, [getIdToken]);
+      const wsUrl = `${AGENT_URL.replace(/^http/, "ws")}/ws/chat?token=${encodeURIComponent(token)}&mode=text`;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        setConnected(true);
+        setConnectError(false);
+        reconnectDelay.current = 1000; // reset backoff
+        reconnectAttempts.current = 0;
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const ts = Date.now();
+
+          if (data.type === "text" || data.type === "response") {
+            setThinking(false);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `msg-${ts}`,
+                role: "assistant",
+                type: "text",
+                content: data.text ?? data.content ?? "",
+                timestamp: ts,
+                workflowId: data.runLink?.workflowId,
+                runId: data.runLink?.runId,
+              },
+            ]);
+          } else if (data.type === "tool_call") {
+            const name = data.name ?? "tool";
+            const meta = TOOL_META[name];
+            // Start synthesis loader for synthesis/adhoc tools
+            if (
+              name === "synthesize_from_description" ||
+              name === "run_adhoc"
+            ) {
+              startSynthesis();
+            }
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `tool-${ts}`,
+                role: "system",
+                type: "tool_call",
+                content: meta?.label ?? `Running: ${name}`,
+                toolName: name,
+                timestamp: ts,
+              },
+            ]);
+          } else if (data.type === "synthesis_complete") {
+            stopSynthesis();
+            setThinking(false);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `synth-${ts}`,
+                role: "system",
+                type: "synthesis_complete",
+                content: `Workflow "${data.workflow_name ?? "New"}" created!`,
+                workflowId: data.workflow_id,
+                workflowName: data.workflow_name,
+                timestamp: ts,
+              },
+            ]);
+          } else if (data.type === "run_started") {
+            setThinking(false);
+            const link = data.runLink ?? data;
+            if (link.ephemeral) {
+              setAdhocWorkflow({
+                workflowId: link.workflowId ?? link.workflow_id,
+                runId: link.runId ?? link.run_id,
+                name: link.name ?? "Ad-hoc workflow",
+              });
+            }
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `run-${ts}`,
+                role: "system",
+                type: "run_started",
+                content: `Run started`,
+                workflowId: link.workflowId ?? link.workflow_id,
+                runId: link.runId ?? link.run_id,
+                workflowName: link.name,
+                ephemeral: link.ephemeral,
+                timestamp: ts,
+              },
+            ]);
+          } else if (data.type === "error") {
+            setThinking(false);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `err-${ts}`,
+                role: "assistant",
+                type: "error",
+                content: data.text ?? "An error occurred.",
+                timestamp: ts,
+              },
+            ]);
+          } else if (data.type === "turn_complete") {
+            setThinking(false);
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        reconnectAttempts.current += 1;
+        // After 3 failed attempts (~14s total), show error and stop auto-retry
+        if (reconnectAttempts.current >= 3) {
+          setConnectError(true);
+          return;
+        }
+        // Exponential backoff reconnection
+        const delay = Math.min(reconnectDelay.current, 30000);
+        reconnectTimer.current = setTimeout(() => connect(true), delay);
+        reconnectDelay.current = delay * 2;
+      };
+
+      ws.onerror = () => ws.close();
+      wsRef.current = ws;
+    },
+    [getIdToken],
+  );
 
   useEffect(() => {
     connect();
@@ -457,13 +466,18 @@ export default function ChatScreen() {
       </Pressable>
       <TextInput
         multiline
-        style={[styles.input, { height: Math.min(Math.max(inputHeight, 36), 100) }]}
+        style={[
+          styles.input,
+          { height: Math.min(Math.max(inputHeight, 36), 100) },
+        ]}
         placeholder={connected ? "Message Echo..." : "Connecting..."}
         placeholderTextColor={colors.textLight}
         value={input}
         onChangeText={setInput}
         editable={connected}
-        onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
+        onContentSizeChange={(e) =>
+          setInputHeight(e.nativeEvent.contentSize.height)
+        }
         returnKeyType="send"
         blurOnSubmit={false}
         onSubmitEditing={() => sendMessage(input)}
@@ -510,7 +524,7 @@ export default function ChatScreen() {
             styles.connectionBanner,
             connectError && styles.connectionBannerError,
           ]}
-          onPress={connectError ? connect : undefined}
+          onPress={connectError ? () => connect() : undefined}
         >
           {connectError ? (
             <>
@@ -534,14 +548,31 @@ export default function ChatScreen() {
       {synthesizing && (
         <View style={styles.synthOverlay}>
           {supportsLiquidGlass ? (
-            <GlassView glassEffectStyle="regular" style={StyleSheet.absoluteFill} />
+            <GlassView
+              glassEffectStyle="regular"
+              style={StyleSheet.absoluteFill}
+            />
           ) : Platform.OS === "ios" ? (
             <>
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(250,249,255,0.88)" }]} />
-              <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+              <View
+                style={[
+                  StyleSheet.absoluteFill,
+                  { backgroundColor: "rgba(250,249,255,0.88)" },
+                ]}
+              />
+              <BlurView
+                intensity={40}
+                tint="light"
+                style={StyleSheet.absoluteFill}
+              />
             </>
           ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(245,247,252,0.92)" }]} />
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: "rgba(245,247,252,0.92)" },
+              ]}
+            />
           )}
           <View style={styles.synthOverlayCard}>
             <Text style={styles.synthOverlayTitle}>Echo is working</Text>
@@ -659,8 +690,17 @@ export default function ChatScreen() {
           </GlassView>
         ) : Platform.OS === "ios" ? (
           <View style={[styles.inputPill, { overflow: "hidden" }]}>
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(250,249,255,0.92)" }]} />
-            <BlurView intensity={55} tint="light" style={StyleSheet.absoluteFill} />
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: "rgba(250,249,255,0.92)" },
+              ]}
+            />
+            <BlurView
+              intensity={55}
+              tint="light"
+              style={StyleSheet.absoluteFill}
+            />
             {inputPillContents}
           </View>
         ) : (

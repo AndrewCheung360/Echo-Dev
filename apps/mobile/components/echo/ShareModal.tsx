@@ -36,14 +36,13 @@ export function ShareModal({ visible, onClose, workflowId }: ShareModalProps) {
   const loadCollaborators = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(
-        `/api/workflows/${workflowId}/collaborators`,
-      );
+      const res = await apiFetch(`/api/workflows/${workflowId}/collaborators`);
       if (res.ok) {
         const data = await res.json();
         setCollaborators(data.collaborators ?? data ?? []);
       }
-    } catch {} finally {
+    } catch {
+    } finally {
       setLoading(false);
     }
   }, [workflowId]);
@@ -87,9 +86,12 @@ export function ShareModal({ visible, onClose, workflowId }: ShareModalProps) {
   async function handleRemove(uid: string) {
     setCollaborators((prev) => prev.filter((c) => c.uid !== uid));
     try {
-      await apiFetch(`/api/workflows/${workflowId}/share/${uid}`, {
+      const res = await apiFetch(`/api/workflows/${workflowId}/share/${uid}`, {
         method: "DELETE",
       });
+      if (!res.ok) {
+        throw new Error("Failed to remove collaborator.");
+      }
     } catch {
       await loadCollaborators();
     }
@@ -174,10 +176,7 @@ export function ShareModal({ visible, onClose, workflowId }: ShareModalProps) {
                       {item.email}
                     </Text>
                   </View>
-                  <Pressable
-                    onPress={() => handleRemove(item.uid)}
-                    hitSlop={8}
-                  >
+                  <Pressable onPress={() => handleRemove(item.uid)} hitSlop={8}>
                     <Text style={styles.removeBtn}>✕</Text>
                   </Pressable>
                 </View>
