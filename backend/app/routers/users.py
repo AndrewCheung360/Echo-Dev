@@ -119,6 +119,9 @@ async def create_custom_token(uid: str = Depends(get_current_uid)):
     Used by the desktop app to authenticate with Firestore client SDK
     for real-time listeners (onSnapshot).
     """
-    get_firebase_app()
-    custom_token = firebase_auth.create_custom_token(uid)
-    return {"custom_token": custom_token.decode() if isinstance(custom_token, bytes) else custom_token}
+    try:
+        get_firebase_app()
+        custom_token = firebase_auth.create_custom_token(uid)
+        return {"custom_token": custom_token.decode() if isinstance(custom_token, bytes) else custom_token}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create custom token: {str(e)}")

@@ -13,8 +13,8 @@ const firebaseConfig = {
 const hasConfig =
   typeof firebaseConfig.apiKey === "string" && firebaseConfig.apiKey.length > 0;
 
-let app: FirebaseApp;
-let db: Firestore;
+let app: FirebaseApp | null = null;
+let db: Firestore | null = null;
 
 if (hasConfig) {
   if (getApps().length === 0) {
@@ -24,9 +24,6 @@ if (hasConfig) {
     app = getApp();
     db = getFirestore(app);
   }
-} else {
-  app = null as unknown as FirebaseApp;
-  db = null as unknown as Firestore;
 }
 
 export { app, db };

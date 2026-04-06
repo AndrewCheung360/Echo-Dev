@@ -102,7 +102,7 @@ export async function addMessageToFirestore(
   conversationId: string,
   message: PersistedMessage,
 ): Promise<void> {
-  if (!db) return;
+  if (!db) throw new Error("Firestore not initialized");
   const msgRef = doc(
     db,
     "users",
@@ -134,7 +134,7 @@ export async function updateConversationMeta(
   lastMessage: string,
   title?: string,
 ): Promise<void> {
-  if (!db) return;
+  if (!db) throw new Error("Firestore not initialized");
   const ref = doc(db, "users", uid, "conversations", conversationId);
   await setDoc(
     ref,

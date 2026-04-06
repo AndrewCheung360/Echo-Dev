@@ -413,17 +413,28 @@ export default function ChatScreen() {
   /* ─── persistence helper ─── */
 
   const persistMsgRef = useRef<(msg: Message) => void>(() => {});
+  const conversationIdRef = useRef<string | null>(conversationId);
+  conversationIdRef.current = conversationId;
+  const creatingConversationRef = useRef<Promise<string> | null>(null);
 
   /** Ensure a conversation exists, persist a message, and update the preview. */
   async function persistMsg(msg: Message) {
     if (!uid) return;
     try {
-      let convId = conversationId;
+      let convId = conversationIdRef.current;
       if (!convId) {
-        convId = await createConversation(
-          uid,
-          msg.role === "user" ? msg.content.slice(0, 40) : "New Chat",
-        );
+        if (!creatingConversationRef.current) {
+          creatingConversationRef.current = createConversation(
+            uid,
+            msg.role === "user" ? msg.content.slice(0, 40) : "New Chat",
+          );
+        }
+        try {
+          convId = await creatingConversationRef.current;
+        } finally {
+          creatingConversationRef.current = null;
+        }
+        conversationIdRef.current = convId;
         setConversationId(convId);
       }
       addMessageToFirestore(uid, convId, {

@@ -319,6 +319,6 @@ async def get_pending_runs(uid: str = Depends(get_current_uid)):
             "run_id": doc.id,
             "workflow_id": workflow_id,
             "goal": data.get("goal"),
-            "goal_only": data.get("goal_only", False),
+            "goal_only": data.get("run_mode") == "goal_only",
         })
     return {"runs": results}

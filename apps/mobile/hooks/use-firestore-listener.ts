@@ -213,7 +213,13 @@ export function useRunStatus(workflowId: string | null, runId: string | null) {
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!db || !workflowId || !runId) return;
+    if (!db || !workflowId || !runId) {
+      setStatus(null);
+      return;
+    }
+
+    // Reset status when switching to a different run so we don't briefly show stale data
+    setStatus(null);
 
     const docRef = doc(db, "workflows", workflowId, "runs", runId);
     const unsub = onSnapshot(
