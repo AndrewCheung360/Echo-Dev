@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
@@ -26,6 +27,7 @@ import {
   type VoiceState,
 } from "@/hooks/use-livekit-session";
 import { colors } from "@echo/design-tokens";
+import { randomUUID } from "expo-crypto";
 
 /* ─── tool metadata ─── */
 
@@ -364,7 +366,7 @@ export default function VoiceScreen() {
       setTranscript((prev) => [
         ...prev,
         {
-          id: `t-${Date.now()}`,
+          id: `t-${randomUUID()}`,
           role: role ?? "agent",
           text,
           ts: Date.now(),
@@ -481,7 +483,11 @@ export default function VoiceScreen() {
       {/* Agent status row */}
       <View style={styles.agentRow}>
         <View style={[styles.agentDot, { backgroundColor: agentStateDot }]} />
-        <Text style={styles.agentLabel}>{statusLabel[session.state]}</Text>
+        <Text style={styles.agentLabel}>
+          {activeTool
+            ? (TOOL_META[activeTool]?.label ?? "Working...")
+            : statusLabel[session.state]}
+        </Text>
         {activeTool && (
           <View style={styles.toolPill}>
             <Ionicons
@@ -489,9 +495,7 @@ export default function VoiceScreen() {
               size={13}
               color="#A577FF"
             />
-            <Text style={styles.toolPillLabel}>
-              {TOOL_META[activeTool]?.label ?? activeTool}
-            </Text>
+            <ActivityIndicator size="small" color="#A577FF" style={{ marginLeft: 4 }} />
           </View>
         )}
       </View>

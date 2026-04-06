@@ -6,6 +6,7 @@ import {
   FlatList,
   Pressable,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ActivityIndicator,
   StyleSheet,
@@ -14,11 +15,19 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { GlassView } from "expo-glass-effect";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "@/stores/auth-store";
 import { AGENT_URL, apiFetch } from "@/lib/api";
+import { randomUUID } from "expo-crypto";
 import { colors } from "@echo/design-tokens";
+import {
+  createConversation,
+  useConversationMessages,
+  addMessageToFirestore,
+  updateConversationMeta,
+} from "@/hooks/use-chat-persistence";
+import { useRunStatus } from "@/hooks/use-firestore-listener";
 
 const iosVersion =
   Platform.OS === "ios" ? parseInt(String(Platform.Version), 10) : 0;
@@ -84,9 +93,86 @@ const QUICK_CHIPS = [
   "Show active runs",
 ];
 
+/* ─── run status helpers ─── */
+
+const RUN_STATUS_CONFIG: Record<
+  string,
+  { icon: IoniconsName; color: string; label: string }
+> = {
+  pending: { icon: "time-outline", color: "#f59e0b", label: "Queued" },
+  running: {
+    icon: "play-circle-outline",
+    color: "#3b82f6",
+    label: "Running...",
+  },
+  completed: { icon: "checkmark-circle", color: "#22c55e", label: "Completed" },
+  failed: { icon: "close-circle", color: "#ef4444", label: "Failed" },
+  cancelled: {
+    icon: "stop-circle-outline",
+    color: "#6b7280",
+    label: "Cancelled",
+  },
+  awaiting_user: {
+    icon: "alert-circle-outline",
+    color: "#f59e0b",
+    label: "Awaiting Input",
+  },
+};
+
+function RunCard({
+  item,
+  router,
+}: {
+  item: Message;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const status = useRunStatus(item.workflowId ?? null, item.runId ?? null);
+  const config =
+    RUN_STATUS_CONFIG[status ?? "pending"] ?? RUN_STATUS_CONFIG.pending;
+
+  return (
+    <Pressable
+      style={styles.runCard}
+      onPress={() => {
+        if (item.workflowId && item.runId) {
+          router.push(
+            `/(tabs)/workflows/${item.workflowId}/runs/${item.runId}`,
+          );
+        }
+      }}
+    >
+      {status === "running" ? (
+        <ActivityIndicator size="small" color={config.color} />
+      ) : (
+        <Ionicons name={config.icon} size={20} color={config.color} />
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.runCardTitle}>{config.label}</Text>
+        {item.workflowName && (
+          <Text style={styles.runCardName} numberOfLines={1}>
+            {item.workflowName}
+          </Text>
+        )}
+        {(status === "pending" || !status) && (
+          <Text style={styles.runCardDesktopNote}>
+            Requires Echo Desktop to be running
+          </Text>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.textLight} />
+    </Pressable>
+  );
+}
+
 /* ─── component ─── */
 
 export default function ChatScreen() {
+  const { conversationId: paramConvId } = useLocalSearchParams<{
+    conversationId?: string;
+  }>();
+  const [conversationId, setConversationId] = useState<string | null>(
+    paramConvId ?? null,
+  );
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
@@ -101,6 +187,7 @@ export default function ChatScreen() {
   } | null>(null);
   const [savingAdhoc, setSavingAdhoc] = useState(false);
   const [inputHeight, setInputHeight] = useState(36);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -109,11 +196,57 @@ export default function ChatScreen() {
   const reconnectAttempts = useRef(0);
   const synthTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const user = useAuthStore((s) => s.user);
+  const uid = user?.uid ?? null;
   const getIdToken = useAuthStore((s) => s.getIdToken);
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  // Load existing messages from Firestore when opening an existing conversation
+  const { data: savedMessages } = useConversationMessages(
+    uid,
+    historyLoaded ? null : conversationId,
+  );
+
+  useEffect(() => {
+    if (savedMessages.length > 0 && !historyLoaded) {
+      setMessages(
+        savedMessages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          type: m.type as MessageType,
+          content: m.content,
+          timestamp: m.timestamp,
+          toolName: m.toolName,
+          workflowId: m.workflowId,
+          runId: m.runId,
+          workflowName: m.workflowName,
+          ephemeral: m.ephemeral,
+        })),
+      );
+      setHistoryLoaded(true);
+    }
+  }, [savedMessages, historyLoaded]);
+  // Track keyboard visibility to reduce bottom padding when keyboard is open
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setKeyboardVisible(true),
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardVisible(false),
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   // Tab bar: height=64 at bottom=32 → pill top at 96px from screen edge. Add 12px gap.
-  const tabBarOffset = Platform.OS === "ios" ? 108 : 16;
+  // When keyboard is open, KeyboardAvoidingView handles positioning so no extra offset needed.
+  const tabBarOffset = keyboardVisible ? 0 : Platform.OS === "ios" ? 108 : 16;
 
   /* ─── synthesis step animation ─── */
   function startSynthesis() {
@@ -165,20 +298,23 @@ export default function ChatScreen() {
           const data = JSON.parse(event.data);
           const ts = Date.now();
 
+          /** Add a message to state and persist it to Firestore. */
+          const addMsg = (msg: Message) => {
+            setMessages((prev) => [...prev, msg]);
+            persistMsgRef.current(msg);
+          };
+
           if (data.type === "text" || data.type === "response") {
             setThinking(false);
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `msg-${ts}`,
-                role: "assistant",
-                type: "text",
-                content: data.text ?? data.content ?? "",
-                timestamp: ts,
-                workflowId: data.runLink?.workflowId,
-                runId: data.runLink?.runId,
-              },
-            ]);
+            addMsg({
+              id: `msg-${randomUUID()}`,
+              role: "assistant",
+              type: "text",
+              content: data.text ?? data.content ?? "",
+              timestamp: ts,
+              workflowId: data.runLink?.workflowId,
+              runId: data.runLink?.runId,
+            });
           } else if (data.type === "tool_call") {
             const name = data.name ?? "tool";
             const meta = TOOL_META[name];
@@ -189,32 +325,26 @@ export default function ChatScreen() {
             ) {
               startSynthesis();
             }
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `tool-${ts}`,
-                role: "system",
-                type: "tool_call",
-                content: meta?.label ?? `Running: ${name}`,
-                toolName: name,
-                timestamp: ts,
-              },
-            ]);
+            addMsg({
+              id: `tool-${randomUUID()}`,
+              role: "system",
+              type: "tool_call",
+              content: meta?.label ?? `Running: ${name}`,
+              toolName: name,
+              timestamp: ts,
+            });
           } else if (data.type === "synthesis_complete") {
             stopSynthesis();
             setThinking(false);
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `synth-${ts}`,
-                role: "system",
-                type: "synthesis_complete",
-                content: `Workflow "${data.workflow_name ?? "New"}" created!`,
-                workflowId: data.workflow_id,
-                workflowName: data.workflow_name,
-                timestamp: ts,
-              },
-            ]);
+            addMsg({
+              id: `synth-${randomUUID()}`,
+              role: "system",
+              type: "synthesis_complete",
+              content: `Workflow "${data.workflow_name ?? "New"}" created!`,
+              workflowId: data.workflow_id,
+              workflowName: data.workflow_name,
+              timestamp: ts,
+            });
           } else if (data.type === "run_started") {
             setThinking(false);
             const link = data.runLink ?? data;
@@ -225,32 +355,26 @@ export default function ChatScreen() {
                 name: link.name ?? "Ad-hoc workflow",
               });
             }
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `run-${ts}`,
-                role: "system",
-                type: "run_started",
-                content: `Run started`,
-                workflowId: link.workflowId ?? link.workflow_id,
-                runId: link.runId ?? link.run_id,
-                workflowName: link.name,
-                ephemeral: link.ephemeral,
-                timestamp: ts,
-              },
-            ]);
+            addMsg({
+              id: `run-${randomUUID()}`,
+              role: "system",
+              type: "run_started",
+              content: `Run started`,
+              workflowId: link.workflowId ?? link.workflow_id,
+              runId: link.runId ?? link.run_id,
+              workflowName: link.name,
+              ephemeral: link.ephemeral,
+              timestamp: ts,
+            });
           } else if (data.type === "error") {
             setThinking(false);
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `err-${ts}`,
-                role: "assistant",
-                type: "error",
-                content: data.text ?? "An error occurred.",
-                timestamp: ts,
-              },
-            ]);
+            addMsg({
+              id: `err-${randomUUID()}`,
+              role: "assistant",
+              type: "error",
+              content: data.text ?? "An error occurred.",
+              timestamp: ts,
+            });
           } else if (data.type === "turn_complete") {
             setThinking(false);
           }
@@ -286,18 +410,67 @@ export default function ChatScreen() {
     };
   }, [connect]);
 
+  /* ─── persistence helper ─── */
+
+  const persistMsgRef = useRef<(msg: Message) => void>(() => {});
+  const conversationIdRef = useRef<string | null>(conversationId);
+  conversationIdRef.current = conversationId;
+  const creatingConversationRef = useRef<Promise<string> | null>(null);
+
+  /** Ensure a conversation exists, persist a message, and update the preview. */
+  async function persistMsg(msg: Message) {
+    if (!uid) return;
+    try {
+      let convId = conversationIdRef.current;
+      if (!convId) {
+        if (!creatingConversationRef.current) {
+          creatingConversationRef.current = createConversation(
+            uid,
+            msg.role === "user" ? msg.content.slice(0, 40) : "New Chat",
+          );
+        }
+        try {
+          convId = await creatingConversationRef.current;
+        } finally {
+          creatingConversationRef.current = null;
+        }
+        conversationIdRef.current = convId;
+        setConversationId(convId);
+      }
+      addMessageToFirestore(uid, convId, {
+        id: msg.id,
+        role: msg.role,
+        type: msg.type,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        toolName: msg.toolName,
+        workflowId: msg.workflowId,
+        runId: msg.runId,
+        workflowName: msg.workflowName,
+        ephemeral: msg.ephemeral,
+      }).catch(() => {});
+      if (msg.type === "text") {
+        updateConversationMeta(uid, convId, msg.content).catch(() => {});
+      }
+    } catch {
+      // Persistence is best-effort; chat still works without it
+    }
+  }
+  persistMsgRef.current = persistMsg;
+
   /* ─── actions ─── */
 
   function sendMessage(text: string) {
     if (!text.trim() || !wsRef.current) return;
     const msg: Message = {
-      id: `user-${Date.now()}`,
+      id: `user-${randomUUID()}`,
       role: "user",
       type: "text",
       content: text.trim(),
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, msg]);
+    persistMsg(msg);
     setInput("");
     setThinking(true);
     setAdhocWorkflow(null);
@@ -336,18 +509,23 @@ export default function ChatScreen() {
 
   /* ─── render helpers ─── */
 
-  function renderMessage({ item }: { item: Message }) {
-    // Tool call card
+  function renderMessage({ item, index }: { item: Message; index: number }) {
+    // Tool call card — show spinner only if this is the last message (still in progress)
     if (item.type === "tool_call") {
       const meta = TOOL_META[item.toolName ?? ""] ?? {
         icon: "cog-outline" as IoniconsName,
         label: item.content,
       };
+      const isLatest = index === messages.length - 1;
       return (
         <View style={styles.toolCard}>
           <Ionicons name={meta.icon} size={14} color={colors.lavender} />
           <Text style={styles.toolLabel}>{meta.label}</Text>
-          <View style={styles.toolDot} />
+          {isLatest && thinking ? (
+            <ActivityIndicator size="small" color={colors.lavender} />
+          ) : (
+            <Ionicons name="checkmark-circle" size={14} color="#4ade80" />
+          )}
         </View>
       );
     }
@@ -382,31 +560,9 @@ export default function ChatScreen() {
       );
     }
 
-    // Run started card (tappable)
+    // Run started card (tappable, with live status)
     if (item.type === "run_started") {
-      return (
-        <Pressable
-          style={styles.runCard}
-          onPress={() => {
-            if (item.workflowId && item.runId) {
-              router.push(
-                `/(tabs)/workflows/${item.workflowId}/runs/${item.runId}`,
-              );
-            }
-          }}
-        >
-          <Ionicons name="play-circle-outline" size={20} color="#22c55e" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.runCardTitle}>Run Started</Text>
-            {item.workflowName && (
-              <Text style={styles.runCardName} numberOfLines={1}>
-                {item.workflowName}
-              </Text>
-            )}
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.textLight} />
-        </Pressable>
-      );
+      return <RunCard item={item} router={router} />;
     }
 
     // User / assistant / error bubbles
@@ -509,8 +665,24 @@ export default function ChatScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={90}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 32 : 0}
     >
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              onPress={() => router.push("/(tabs)/chat/conversations")}
+              style={{ paddingHorizontal: 8 }}
+            >
+              <Ionicons
+                name="chatbubbles-outline"
+                size={22}
+                color={colors.lavender}
+              />
+            </Pressable>
+          ),
+        }}
+      />
       {/* Subtle gradient background */}
       <LinearGradient
         colors={["#F4F0FF", "#EBF4FF", "#F8F9FE"]}
@@ -906,6 +1078,13 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontFamily: "Inter",
     marginTop: 1,
+  },
+  runCardDesktopNote: {
+    fontSize: 11,
+    color: colors.textLight,
+    fontFamily: "Inter",
+    fontStyle: "italic" as const,
+    marginTop: 2,
   },
 
   /* thinking indicator */

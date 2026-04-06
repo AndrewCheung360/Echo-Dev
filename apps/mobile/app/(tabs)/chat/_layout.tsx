@@ -32,6 +32,7 @@ export default function ChatLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ title: "Chat with Echo" }} />
+      <Stack.Screen name="conversations" options={{ title: "Conversations" }} />
       <Stack.Screen
         name="voice"
         options={{ title: "Voice", presentation: "fullScreenModal", headerShown: false }}

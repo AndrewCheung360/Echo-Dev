@@ -3,6 +3,7 @@ import {
   query,
   collection,
   collectionGroup,
+  doc,
   where,
   onSnapshot,
   orderBy,
@@ -203,6 +204,40 @@ export function useWorkflowSteps(workflowId: string | null) {
       : null,
     [workflowId],
   );
+}
+
+/**
+ * Listen to a single run document and return its current status.
+ */
+export function useRunStatus(workflowId: string | null, runId: string | null) {
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!db || !workflowId || !runId) {
+      setStatus(null);
+      return;
+    }
+
+    // Reset status when switching to a different run so we don't briefly show stale data
+    setStatus(null);
+
+    const docRef = doc(db, "workflows", workflowId, "runs", runId);
+    const unsub = onSnapshot(
+      docRef,
+      (snap) => {
+        if (snap.exists()) {
+          setStatus(snap.data()?.status ?? null);
+        }
+      },
+      (err) => {
+        console.warn("Run status listener error:", err);
+      },
+    );
+
+    return unsub;
+  }, [workflowId, runId]);
+
+  return status;
 }
 
 /**
